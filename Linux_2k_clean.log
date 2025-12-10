@@ -861,19 +861,9 @@ Jul  7 07:18:13 combo sshd(pam_unix)[12524]: session closed for user test
 Jul  7 07:18:13 combo sshd(pam_unix)[12527]: session opened for user test by (uid=509)
 Jul  7 07:18:14 combo sshd(pam_unix)[12525]: session closed for user test
 Jul  7 07:18:14 combo sshd(pam_unix)[12527]: session closed for user test
-Jul  7 08:06:12 combo gpm[2094]: *** info [mice.c(1766)]: 
-Jul  7 08:06:12 combo gpm[2094]: imps2: Auto-detected intellimouse PS/2
 Jul  7 08:06:15 combo login(pam_unix)[2421]: session opened for user root by LOGIN(uid=0)
 Jul  7 08:06:15 combo  -- root[2421]: ROOT LOGIN ON tty2
 Jul  7 08:09:10 combo login(pam_unix)[2421]: session closed for user root
-Jul  7 08:09:11 combo udev[12754]: removing device node '/udev/vcsa2'
-Jul  7 08:09:11 combo udev[12753]: removing device node '/udev/vcs2'
-Jul  7 08:09:11 combo udev[12777]: creating device node '/udev/vcs2'
-Jul  7 08:09:11 combo udev[12778]: creating device node '/udev/vcsa2'
-Jul  7 08:09:11 combo udev[12786]: removing device node '/udev/vcs2'
-Jul  7 08:09:11 combo udev[12790]: removing device node '/udev/vcsa2'
-Jul  7 08:09:11 combo udev[12795]: creating device node '/udev/vcs2'
-Jul  7 08:09:11 combo udev[12798]: creating device node '/udev/vcsa2'
 Jul  7 14:18:55 combo sshd(pam_unix)[13317]: check pass; user unknown
 Jul  7 14:18:55 combo sshd(pam_unix)[13317]: authentication failure; logname= uid=0 euid=0 tty=NODEVssh ruser= rhost=c9063558.virtua.com.br 
 Jul  7 14:18:57 combo sshd(pam_unix)[13321]: check pass; user unknown

@@ -71,7 +71,7 @@ line_count = 0
 
 print("Scanning logs...")
 try:
-    with open('Linux_2k.log', 'r') as f:
+    with open('Linux_2k_clean.log', 'r') as f:
         for line in f:
             line = line.strip()
             if not line: continue

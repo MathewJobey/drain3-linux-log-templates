@@ -17,12 +17,14 @@ BLACKLIST = [
     "sysctl",
     "network",      # Matches "network:"
     "random",       # Matches "random:" (rngd)
+    "udev",        # Matches "udevd" or "udev:"
     
     # 2. Peripherals
-    "bluetooth",
-    "sdpd",
-    "hcid",
-    "cups",
+    "bluetooth", 
+    "sdpd",  
+    "hcid",         # Bluetooth daemon
+    "cups",         # Printing system
+    "gpm",          # General Purpose Mouse
 
     # 3. System Housekeeping
     "logrotate",
