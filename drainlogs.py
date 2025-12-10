@@ -9,13 +9,6 @@ from drain3.masking import MaskingInstruction
 config = TemplateMinerConfig()
 config.profiling_enabled = False
 
-# Add this right after creating config
-
-
-config.drain_sim_th = 0.75 # Default is usually 0.5. Increasing this makes it stricter.
-
-
-
 config.mask_prefix = ""
 config.mask_suffix = ""
 
@@ -49,21 +42,14 @@ config.masking_instructions = [
 template_miner = TemplateMiner(config=config)
 
 # ==========================================
-# 2. PRE-PROCESSOR (The "Neutralizer")
+# 2. PRE-PROCESSOR 
 # ==========================================
 def preprocess_log(log_line):
-    # 1. Regex to find the standard Syslog header
-    # Matches: "Jun 14 15:16:01 combo" OR "Jul  1 09:00:00 server"
-    # \s+ handles the variable spaces (Jun 14 vs Jun  1)
+    # 1. Standard Header Replacement
+    # Finds "Jul 27 14:41:57 combo" and replaces with tags
     header_regex = r'^([A-Z][a-z]{2}\s+\d+\s\d{2}:\d{2}:\d{2})\s+(\S+)'
-    
-    # 2. Replace with your CONSTANT tags
-    # This overwrites the variable date/host with static text.
-    # Now Drain sees every line starting identically.
     log_line = re.sub(header_regex, '<TIMESTAMP> <HOSTNAME>', log_line)
-    
     return log_line.strip()
-
 # ==========================================
 # 3. EXECUTION
 # ==========================================
@@ -81,13 +67,16 @@ try:
             line_count += 1
 
     print(f"Done! Scanned {line_count} lines.")
-    print("\n--- Your Final Templates ---")
+    print("\n" + "="*50)
+    print(f"ALL CLUSTERS (Total: {len(template_miner.drain.clusters)})")
+    print("="*50)
     
     # Sort by frequency
     sorted_clusters = sorted(template_miner.drain.clusters, key=lambda x: x.size, reverse=True)
 
-    for cluster in sorted_clusters[:15]:
-        print(f"[{cluster.size}] {cluster.get_template()}")
+    # LOOP THROUGH ALL CLUSTERS (No limit)
+    for i, cluster in enumerate(sorted_clusters, 1):
+        print(f"[{i}]Count: {cluster.size}\t| {cluster.get_template()}")
 
 except FileNotFoundError:
     print("Error: 'Linux_2k.log' not found.")
