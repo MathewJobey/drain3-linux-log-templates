@@ -34,14 +34,30 @@ config.masking_instructions = [
 template_miner = TemplateMiner(config=config)
 
 # ==========================================
-# 2. HEADER STRIPPER
+# 2. HEADER PRE-PROCESSOR
 # ==========================================
-def get_log_content(log_line):
-    # Removes: "Jun 14 15:16:01 combo "
-    header_pattern = r'^[A-Z][a-z]{2}\s+\d+\s\d{2}:\d{2}:\d{2}\s+\S+\s+'
-    cleaned_line = re.sub(header_pattern, '', log_line)
-    return cleaned_line.strip()
-
+def preprocess_log(log_line):
+    """
+    Handles only the standard Syslog header at the START of the line.
+    Input:  'Jun 14 15:16:01 combo sshd...'
+    Output: '<timestamp> <hostname> sshd...'
+    """
+    # 1. Match the Timestamp at the start
+    # Format: Jun 14 15:16:01
+    log_line = re.sub(
+        r'^[A-Z][a-z]{2}\s+\d+\s\d{2}:\d{2}:\d{2}', 
+        '<TIMESTAMP>', 
+        log_line
+    )
+    # 2. Match the Hostname (the first word after the timestamp)
+    # Format: <timestamp> combo ...
+    # We look for <timestamp> followed by space and then any text
+    log_line = re.sub(
+        r'(?<=<TIMESTAMP>)\s+(\S+)', 
+        ' <HOSTNAME>', 
+        log_line
+    )
+    return log_line.strip()
 # ==========================================
 # 3. EXECUTION
 # ==========================================
@@ -54,7 +70,7 @@ try:
             line = line.strip()
             if not line: continue
             
-            content = get_log_content(line)
+            content = preprocess_log(line)
             template_miner.add_log_message(content)
             line_count += 1
 

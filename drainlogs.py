@@ -4,62 +4,72 @@ from drain3.template_miner_config import TemplateMinerConfig
 from drain3.masking import MaskingInstruction
 
 # ==========================================
-# 1. SETUP: Smarter Rules (Fixed)
+# 1. SETUP
 # ==========================================
 config = TemplateMinerConfig()
 config.profiling_enabled = False
+config.mask_prefix = ""
+config.mask_suffix = ""
 
 config.masking_instructions = [
-    # Rule A: Mask PIDs specifically (e.g., sshd[12345] -> sshd[<PID>])
-    # We do this instead of masking ALL numbers, so 'uid=0' stays '0'.
-    MaskingInstruction(r"\[(\d+)\]", "[<PID>]"),
+    # Rule A: Suffix TIMESTAMP
+    MaskingInstruction(
+        r"\w{3}\s+\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\d{4}", 
+        "<TIMESTAMP>"
+    ),
 
-    # Rule B: Force 'rhost=...' to always look the same
-    # Whether it is "rhost=1.2.3.4" or "rhost=example.com", it becomes "rhost=<HOST>"
-    MaskingInstruction(r"rhost=(\S+)", "rhost=<HOST>"),
+    # Rule B: PID
+    MaskingInstruction(r"\[\d+\]", "[<PID>]"),
 
-    # Rule C: Force 'user=...' to always look the same
-    # "user=root" or "user=admin" becomes "user=<USER>"
-    MaskingInstruction(r"user=(\S+)", "user=<USER>"),
+    # Rule C: USER
+    MaskingInstruction(r"user=\S+", "user=<USER>"),
 
-    # Rule D: Mask standard IPs (just in case they appear elsewhere)
-    MaskingInstruction(r"((?<!\d)\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(?!\d))", "<IP>")
+    # Rule D: Parentheses (Remote Domains/IPs)
+    # Replaces "(adelphia.net)" or "()" with "(<rHOST>)"
+    # This correctly labels it as the REMOTE host, not your local HOSTNAME.
+    MaskingInstruction(r"(?<=\s)\([^)]*\)", "(<rHOST>)"),
+
+    # Rule E: Combined IP / rhost= Rule
+    # Replaces "rhost=1.2.3.4" or just "1.2.3.4" with "<rHOST>"
+    MaskingInstruction(
+        r"(rhost=\S+)|((?<!\d)\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(?!\d))", 
+        "<rHOST>"
+    )
 ]
 
 template_miner = TemplateMiner(config=config)
 
 # ==========================================
-# 2. HELPER: Strip the Header
+# 2. PRE-PROCESSOR
 # ==========================================
-def get_log_content(log_line):
-    # Matches: Jun 14 15:16:01 combo
-    header_pattern = r'^[A-Z][a-z]{2}\s+\d+\s\d{2}:\d{2}:\d{2}\s+\S+\s+'
-    cleaned_line = re.sub(header_pattern, '', log_line)
-    return cleaned_line.strip()
+def preprocess_log(log_line):
+    # 1. Replace Date at start
+    log_line = re.sub(r'^[A-Z][a-z]{2}\s+\d+\s\d{2}:\d{2}:\d{2}', '<TIMESTAMP>', log_line)
+    
+    # 2. Replace HOSTNAME (The local machine "combo")
+    # We deliberately call this <HOSTNAME> to distinguish it from <rHOST>
+    log_line = re.sub(r'(?<=<TIMESTAMP>)\s+(\S+)', ' <HOSTNAME>', log_line)
+    
+    return log_line.strip()
 
 # ==========================================
-# 3. RUN IT
+# 3. EXECUTION
 # ==========================================
 line_count = 0
 
-print("Scanning logs with V2 rules...")
+print("Scanning logs with rHOST correction...")
 try:
     with open('Linux_2k.log', 'r') as f:
         for line in f:
             line = line.strip()
             if not line: continue
             
-            # Step A: Clean
-            content = get_log_content(line)
-            
-            # Step B: Feed to Drain
+            content = preprocess_log(line)
             template_miner.add_log_message(content)
             line_count += 1
 
-    # 4. Print Results
     print(f"Done! Scanned {line_count} lines.")
-    print(f"Found {len(template_miner.drain.clusters)} unique patterns.")
-    print("\n--- Your Perfect Templates ---")
+    print("\n--- Your Final Templates ---")
     
     sorted_clusters = sorted(template_miner.drain.clusters, key=lambda x: x.size, reverse=True)
 
