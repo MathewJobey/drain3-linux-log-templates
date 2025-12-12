@@ -18,6 +18,9 @@ BLACKLIST = [
     "network",      # Matches "network:"
     "random",       # Matches "random:" (rngd)
     "udev",        # Matches "udevd" or "udev:"
+    "apmd",         # Power management/Battery
+    "smartd",       # SMART disk monitoring
+    "init",
     
     # 2. Peripherals
     "bluetooth", 
@@ -30,6 +33,14 @@ BLACKLIST = [
     "logrotate",
     "syslog",       # Matches "syslogd", "syslog"
     "klogd",
+    "crond",
+    "anacron",
+    "atd",
+    "readahead",
+    "messagebus",
+    "ntpd",
+    "dd",
+    
 
     # 4. Network Plumbing (NFS/RPC)
     "rpc.statd",
@@ -38,6 +49,24 @@ BLACKLIST = [
     "nfslock",
     "automount",
     "ifup",         # Interface startup
+    "netfs",        # Network file system mounter
+    "autofs",       # Auto filesystem mounter
+    
+    # 5. PROXIES & SERVERS
+    "privoxy", 
+    "squid",
+    "sendmail",     # Mail server startup
+    "spamassassin",
+    "httpd",        
+    "xfs",          
+    "IIim",         
+    "htt",          
+    "htt_server",   
+    "canna",
+    "named",
+    "rsyncd",
+    "mysqld",
+    "FreeWnn",
 ]
 
 removed_count = 0
