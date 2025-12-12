@@ -54,7 +54,7 @@ config.masking_instructions = [
     #   "LOGIN FROM 1.2.3.4"
     #   "LOGIN FROM 1.2.3.4, dns.name"
     #   "LOGIN FROM 1.2.3.4,   (anonymous)"
-    MaskingInstruction(r"ANONYMOUS FTP LOGIN FROM \S+(?:,.*)?", "ANONYMOUS FTP LOGIN FROM <RHOST>"),
+    MaskingInstruction(r"ANONYMOUS FTP LOGIN FROM .+", "ANONYMOUS FTP LOGIN FROM <RHOST>"),
 
     # =========================================================
     # 2. GENERIC VARIABLES (Low Priority)
