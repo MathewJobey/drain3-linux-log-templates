@@ -95,11 +95,23 @@ def preprocess_log(log_line):
 # ==========================================
 # 3. EXECUTION
 # ==========================================
+
+# 1. Ask user for input file
+print("="*40)
+user_input = input("Enter log filename to scan (default: Linux_2k_clean.log): ").strip()
+
+if not user_input:
+    target_file = 'Linux_2k_clean.log'
+else:
+    target_file = user_input
+
+print(f"Scanning logs from: {target_file}")
+print("="*40)
+
 line_count = 0
 
-print("Scanning logs with Pro Config...")
 try:
-    with open('Linux_2k_clean.log', 'r') as f:
+    with open(target_file, 'r') as f:
         for line in f:
             line = line.strip()
             if not line: continue
@@ -119,4 +131,5 @@ try:
         print(f"[{i}] Count: {cluster.size}\t| {cluster.get_template()}")
 
 except FileNotFoundError:
-    print("Error: 'Linux_2k_clean.log' not found.")
+    print(f"Error: '{target_file}' not found.")
+    print("Please check the filename and try again.")

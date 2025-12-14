@@ -1,124 +1,88 @@
+import os
+
 # ==========================================
-# SURGICAL LOG CLEANER
-# Checks ONLY the Process Name (Token #5)
+# SURGICAL LOG CLEANER (DEBUG MODE)
+# Saves removed lines to 'trash.log' so you can check them.
 # ==========================================
 
-input_filename = 'Linux_2k.log'
-output_filename = 'Linux_2k_clean.log'
+print("="*40)
+user_input = input("Enter log filename to clean (default: Linux_2k.log): ").strip()
 
-# The Blocklist
-# Just the pure process names. No colons, no brackets.
-# We will check if the log's process section STARTS with these.
+if not user_input:
+    input_filename = 'Linux_2k.log'
+else:
+    input_filename = user_input
+
+# Output filenames
+base_name, extension = os.path.splitext(input_filename)
+output_filename = f"{base_name}_clean{extension}"
+trash_filename = f"{base_name}_trash{extension}"
+
+print(f"Target Input:  {input_filename}")
+print(f"Clean Output:  {output_filename}")
+print(f"Trash Output:  {trash_filename} (Check this to see what was removed!)")
+print("="*40)
+
 BLACKLIST = [
     # 1. Hardware & Boot
-    "kernel",       # Matches "kernel:"
-    "rc",           # Matches "rc:"
-    "irqbalance",
-    "sysctl",
-    "network",      # Matches "network:"
-    "random",       # Matches "random:" (rngd)
-    "udev",        # Matches "udevd" or "udev:"
-    "apmd",         # Power management/Battery
-    "smartd",       # SMART disk monitoring
-    "init",
-    
+    "kernel", "rc", "irqbalance", "sysctl", "network", "random", "udev", 
+    "apmd", "smartd", "init",
     # 2. Peripherals
-    "bluetooth", 
-    "sdpd",  
-    "hcid",         # Bluetooth daemon
-    "cups",         # Printing system
-    "gpm",          # General Purpose Mouse
-
+    "bluetooth", "sdpd", "hcid", "cups", "gpm",
     # 3. System Housekeeping
-    "logrotate",
-    "syslog",       # Matches "syslogd", "syslog"
-    "klogd",
-    "crond",
-    "anacron",
-    "atd",
-    "readahead",
-    "messagebus",
-    "ntpd",
-    "dd",
-    
-
-    # 4. Network Plumbing (NFS/RPC)
-    "rpc.statd",
-    "rpcidmapd",
-    "portmap",
-    "nfslock",
-    "automount",
-    "ifup",         # Interface startup
-    "netfs",        # Network file system mounter
-    "autofs",       # Auto filesystem mounter
-    
+    "logrotate", "syslog", "klogd", "crond", "anacron", "atd", "readahead", 
+    "messagebus", "ntpd", "dd",
+    # 4. Network Plumbing
+    "rpc.statd", "rpcidmapd", "portmap", "nfslock", "automount", "ifup", 
+    "netfs", "autofs",
     # 5. PROXIES & SERVERS
-    "privoxy", 
-    "squid",
-    "sendmail",     # Mail server startup
-    "spamassassin",
-    "httpd",        
-    "xfs",          
-    "IIim",         
-    "htt",          
-    "htt_server",   
-    "canna",
-    "named",
-    "rsyncd",
-    "mysqld",
-    "FreeWnn",
+    "privoxy", "squid", "sendmail", "spamassassin", "httpd", "xfs", 
+    "IIim", "htt", "htt_server", "canna", "named", "rsyncd", "mysqld", "FreeWnn"
 ]
 
 removed_count = 0
 kept_count = 0
 
-print(f"Reading from: {input_filename}")
-print(f"Targeting process names after hostname...")
-
 try:
-    with open(input_filename, 'r') as infile, open(output_filename, 'w') as outfile:
+    with open(input_filename, 'r') as infile, \
+         open(output_filename, 'w') as outfile, \
+         open(trash_filename, 'w') as trashfile:
+        
         for line in infile:
             stripped_line = line.strip()
-            if not stripped_line:
-                continue
+            if not stripped_line: continue
 
-            # Split the line into tokens
-            # Format: Date Time Hostname ProcessName ...
-            # Index:   0    1      2        3          4
             tokens = stripped_line.split()
 
-            # Safety check: Ensure line has enough parts
+            # Safety check for short lines
             if len(tokens) < 5:
-                # If line is too short (weird junk), keep it or log warning. 
-                # Usually safe to keep as it might be a weird raw message.
                 outfile.write(line)
                 kept_count += 1
                 continue
 
-            # "combo" is at index 3. The Process is at index 4.
+            # Token 4 is the process name (e.g., "sshd[123]:")
             process_token = tokens[4] 
 
-            # Check if the process token starts with anything in our blacklist
-            # e.g., "kernel:" starts with "kernel" -> DELETE
-            # e.g., "sshd[123]:" starts with "kernel"? -> KEEP
-            is_noise = False
+            matched_keyword = None
             for bad_process in BLACKLIST:
                 if process_token.startswith(bad_process):
-                    is_noise = True
+                    matched_keyword = bad_process
                     break
             
-            if is_noise:
+            if matched_keyword:
+                # Write to TRASH with the reason
+                trashfile.write(f"[MATCHED: {matched_keyword}] {line}")
                 removed_count += 1
             else:
                 outfile.write(line)
                 kept_count += 1
 
     print("\n" + "="*40)
-    print("CLEANING COMPLETE")
+    print("DEBUG RUN COMPLETE")
     print("="*40)
-    print(f"Removed: {removed_count} lines")
     print(f"Kept:    {kept_count} lines")
-    print(f"Saved to: {output_filename}")
+    print(f"Removed: {removed_count} lines")
+    print(f"Details: See '{trash_filename}' to verify removals.")
 
 except FileNotFoundError:
-    print(f"Error: Could not find '{input_filename}'.")
+    print(f"\nError: Could not find '{input_filename}'.")
