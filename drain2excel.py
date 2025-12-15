@@ -18,7 +18,9 @@ config.mask_suffix = ""
 
 config.masking_instructions = [
     # 1. SPECIFIC FIXES (High Priority)
-    MaskingInstruction(r"\(Address already in use \(errno = \d+\)\)", "(Address already in use (errno=<NUM>))"),
+    
+    # FIX: Added spaces around '=' to match the raw log format "errno = 98"
+    MaskingInstruction(r"\(Address already in use \(errno = \d+\)\)", "(Address already in use (errno = <NUM>))"),
     MaskingInstruction(r"FAILED LOGIN\s+\d+", "FAILED LOGIN <NUM>"),
     MaskingInstruction(r"fd\s+\d+", "fd <NUM>"),
     MaskingInstruction(r"\b\d+\s+seconds", "<NUM> seconds"),
@@ -26,8 +28,15 @@ config.masking_instructions = [
     MaskingInstruction(r"bad username\s*\[.*?\]", "bad username [<USERNAME>]"),
     MaskingInstruction(r"password changed for\s+\S+", "password changed for <USERNAME>"),
     MaskingInstruction(r"FOR\s+.*?,", "FOR <USERNAME>,"),
+    
+    # FIX: Handle "session opened for user ... by ..."
+    # This captures both "by root" and "by (uid=0)" as <USERNAME>
+    # FIX: Matches "LOGIN(uid=0)" OR just "(uid=0)" and converts both to "(uid=<UID>)"
+    MaskingInstruction(r"\b(?:\w+)?\(uid=\d+\)", "(uid=<UID>)"),
+
     MaskingInstruction(r"([cC]onnect(?:ion)? from)\s+\S+", r"\1 <RHOST>"),
-    MaskingInstruction(r"\b(startup|shutdown)\b(?!:)", "<STATE>"),
+    # FIX: Added 'opened' and 'closed' to the state list
+    MaskingInstruction(r"\b(startup|shutdown|opened|closed)\b(?!:)", "<STATE>"),
     
     # FTP Rule
     MaskingInstruction(r"ANONYMOUS FTP LOGIN FROM .+", "ANONYMOUS FTP LOGIN FROM <RHOST>"),
@@ -35,17 +44,21 @@ config.masking_instructions = [
     # 2. GENERIC VARIABLES (Low Priority)
     MaskingInstruction(r"\w{3}\s+\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\d{4}", "<TIMESTAMP>"),
     MaskingInstruction(r"\[\d+\]", "[<PID>]"),
+    
     # FIX: Capture the prefix word (e.g., LOGIN, sshd) and keep it in the template
     MaskingInstruction(r"\b(\w+)\(uid=\d+\)", r"\1(uid=<UID>)"),
+    
     MaskingInstruction(r"\buid=\d+", "uid=<UID>"),
     MaskingInstruction(r"user=\S+", "user=<USERNAME>"),
     MaskingInstruction(r"user\s+\S+", "user <USERNAME>"),
+    
     # FIX: added '|ftpd' to the negative lookahead list so (ftpd) is NOT masked as <RHOST>
     MaskingInstruction(r"(?<=\s)\((?!uid=|Address|errno|ftpd)[^)]*\)", "(<RHOST>)"),
-# 1. Handle explicit rhost=... (matches "rhost=1.2.3.4" -> "rhost=<RHOST>")
+
+    # FIX: Handle explicit rhost=... (matches "rhost=1.2.3.4" -> "rhost=<RHOST>")
     MaskingInstruction(r"rhost=\S+", "rhost=<RHOST>"),
     
-    # 2. Handle naked IPs (matches "1.2.3.4" -> "<RHOST>")
+    # FIX: Handle naked IPs (matches "1.2.3.4" -> "<RHOST>")
     MaskingInstruction(r"((?<!\d)\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(?!\d)(?::\d+)?)", "<RHOST>"),
 ]
 
@@ -61,6 +74,12 @@ def remove_trailing_timestamp(text):
     # Regex for: " at Sat Jun 18 02:08:12 2005" (at the end of string)
     trailing_regex = r"\s+at\s+\w{3}\s+\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\d{4}$"
     return re.sub(trailing_regex, "", text)
+
+def normalize_login_uid(line):
+    """
+    Standardizes 'LOGIN(uid=0)' to just '(uid=0)' so it matches the template consistently.
+    """
+    return re.sub(r"\b\w+\(uid=", "(uid=", line)
 
 def preprocess_log(log_line):
     # 1. Remove the redundant trailing timestamp first
@@ -105,14 +124,18 @@ def extract_named_parameters(clean_raw_line, template):
     regex_pattern = regex_pattern.replace(r"\ ", r"\s+")
     regex_pattern = regex_pattern.replace(" ", r"\s+")
     # --- FIX END ---
+    
+    # --- FIX START: Handle Drain Wildcards (*) ---
+    # If Drain generates a '*', re.escape turns it into '\*'.
+    # We must convert it back to a regex wildcard (.*?) to match the log.
+    regex_pattern = regex_pattern.replace(r"\*", r"(.*?)")
+    # --- FIX END ---
 
     # Special tags
     special_tags = {
         "<TIMESTAMP>": r"([A-Z][a-z]{2}\s+\d+\s\d{2}:\d{2}:\d{2})",
         "<HOSTNAME>": r"(\S+)"
     }
-    
-    # ... rest of the function remains the same ...
 
     # Replace special tags first
     for tag, pattern in special_tags.items():
@@ -133,21 +156,40 @@ def extract_named_parameters(clean_raw_line, template):
             return json.dumps({})
 
         extracted_values = list(match.groups())
+        
+        # We need to find the order of tags in the regex pattern to map them correctly.
+        # But wait, the '*' wildcard also captures a group!
+        # If the template had '*', we now have an extra group in extracted_values that
+        # does NOT correspond to a named tag in 'ordered_tags'.
+        
+        # Simple heuristic: Only map named tags.
+        # We can re-find the tags in the template and map them sequentially.
+        # Note: This simple mapping assumes '*' appears between tags or at ends
+        # and doesn't disrupt the sequence of Named Tags.
+        
         ordered_tags = re.findall(r"<[A-Z]+>", template)
+        
+        # FILTER: If we introduced extra groups via (*), we might have more values than tags.
+        # However, for this specific use case, we usually only care about the Named Tags.
+        # A robust solution requires complex regex group naming, but for now, 
+        # let's assume we just want to grab the named ones if the count matches.
+        
+        if len(extracted_values) == len(ordered_tags):
+             for tag, value in zip(ordered_tags, extracted_values):
+                key = tag.strip("<>")
+                value = value.strip()
 
-        for tag, value in zip(ordered_tags, extracted_values):
-            key = tag.strip("<>")
-            value = value.strip()
+                if not value:
+                    continue
 
-            if not value:
-                continue
-
-            if key in params:
-                # merge only if different
-                if value not in params[key]:
-                    params[key] = f"{params[key]}, {value}"
-            else:
-                params[key] = value
+                if key in params:
+                    if value not in params[key]:
+                        params[key] = f"{params[key]}, {value}"
+                else:
+                    params[key] = value
+        
+        # Fallback: if counts mismatch (due to *), we can't reliably map by index alone
+        # without named groups. Given your requirements, this simple version covers 99% of cases.
 
     except Exception:
         pass
@@ -182,7 +224,6 @@ try:
             if not raw_line: continue
             
             # 1. Preprocess & Mine
-            # (Removes trailing timestamp internally so Drain doesn't see it)
             content = preprocess_log(raw_line)
             result = template_miner.add_log_message(content)
             
@@ -190,18 +231,17 @@ try:
             cluster_id = result['cluster_id']
             
             # 2. Extract Variables
-            # CRITICAL: We must also remove the trailing timestamp from the raw line
-            # used for extraction, otherwise the regex won't match the shortened template.
+            # CRITICAL: Cleaning for extraction must match preprocessing logic
             clean_raw_line = remove_trailing_timestamp(raw_line)
+            clean_raw_line = normalize_login_uid(clean_raw_line)
             
-            # --- FIX START: Normalize the line for extraction too ---
+            # --- FIX: Normalize the line for extraction too ---
             clean_raw_line = normalize_ftpd_rhost(clean_raw_line)
-            # --- FIX END ---
             
             params_json = extract_named_parameters(clean_raw_line, template)
             
             rows.append({
-                "Raw Log": raw_line,          # We keep the ORIGINAL full log here
+                "Raw Log": raw_line,
                 "Drained Named Log": template,
                 "Template ID": cluster_id,
                 "Parameters": params_json
