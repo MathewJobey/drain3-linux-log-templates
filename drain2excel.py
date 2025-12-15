@@ -35,12 +35,18 @@ config.masking_instructions = [
     # 2. GENERIC VARIABLES (Low Priority)
     MaskingInstruction(r"\w{3}\s+\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\d{4}", "<TIMESTAMP>"),
     MaskingInstruction(r"\[\d+\]", "[<PID>]"),
-    MaskingInstruction(r"\b\w+\(uid=\d+\)", "(uid=<UID>)"),
+    # FIX: Capture the prefix word (e.g., LOGIN, sshd) and keep it in the template
+    MaskingInstruction(r"\b(\w+)\(uid=\d+\)", r"\1(uid=<UID>)"),
     MaskingInstruction(r"\buid=\d+", "uid=<UID>"),
     MaskingInstruction(r"user=\S+", "user=<USERNAME>"),
     MaskingInstruction(r"user\s+\S+", "user <USERNAME>"),
-    MaskingInstruction(r"(?<=\s)\((?!uid=|Address|errno)[^)]*\)", "(<RHOST>)"),
-    MaskingInstruction(r"(rhost=\S+)|((?<!\d)\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(?!\d)(?::\d+)?)", "rhost=<RHOST>"),
+    # FIX: added '|ftpd' to the negative lookahead list so (ftpd) is NOT masked as <RHOST>
+    MaskingInstruction(r"(?<=\s)\((?!uid=|Address|errno|ftpd)[^)]*\)", "(<RHOST>)"),
+# 1. Handle explicit rhost=... (matches "rhost=1.2.3.4" -> "rhost=<RHOST>")
+    MaskingInstruction(r"rhost=\S+", "rhost=<RHOST>"),
+    
+    # 2. Handle naked IPs (matches "1.2.3.4" -> "<RHOST>")
+    MaskingInstruction(r"((?<!\d)\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(?!\d)(?::\d+)?)", "<RHOST>"),
 ]
 
 template_miner = TemplateMiner(config=config)
@@ -90,17 +96,23 @@ def normalize_ftpd_rhost(line):
 def extract_named_parameters(clean_raw_line, template):
     """
     Extracts values using the Cleaned Raw Line (no trailing timestamp).
-    If the same key appears multiple times with different values,
-    they are merged using comma separation.
     """
     params = {}
     regex_pattern = re.escape(template)
+
+    # --- FIX START: Allow flexible whitespace ---
+    # Replace literal spaces (escaped or not) with \s+ to match 1 or more spaces
+    regex_pattern = regex_pattern.replace(r"\ ", r"\s+")
+    regex_pattern = regex_pattern.replace(" ", r"\s+")
+    # --- FIX END ---
 
     # Special tags
     special_tags = {
         "<TIMESTAMP>": r"([A-Z][a-z]{2}\s+\d+\s\d{2}:\d{2}:\d{2})",
         "<HOSTNAME>": r"(\S+)"
     }
+    
+    # ... rest of the function remains the same ...
 
     # Replace special tags first
     for tag, pattern in special_tags.items():
@@ -181,6 +193,11 @@ try:
             # CRITICAL: We must also remove the trailing timestamp from the raw line
             # used for extraction, otherwise the regex won't match the shortened template.
             clean_raw_line = remove_trailing_timestamp(raw_line)
+            
+            # --- FIX START: Normalize the line for extraction too ---
+            clean_raw_line = normalize_ftpd_rhost(clean_raw_line)
+            # --- FIX END ---
+            
             params_json = extract_named_parameters(clean_raw_line, template)
             
             rows.append({
