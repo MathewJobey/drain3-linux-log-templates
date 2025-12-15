@@ -48,37 +48,46 @@ template_miner = TemplateMiner(config=config)
 # ==========================================
 # 2. HELPER FUNCTIONS
 # ==========================================
+def remove_trailing_timestamp(text):
+    """
+    Removes the redundant 'at Sat Jun 18...' timestamp from the end of the line.
+    """
+    # Regex for: " at Sat Jun 18 02:08:12 2005" (at the end of string)
+    trailing_regex = r"\s+at\s+\w{3}\s+\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\d{4}$"
+    return re.sub(trailing_regex, "", text)
+
 def preprocess_log(log_line):
-    # This prepares the log for Drain training (learning the patterns)
+    # 1. Remove the redundant trailing timestamp first
+    log_line = remove_trailing_timestamp(log_line)
+    
+    # 2. Standardize the Header
     header_regex = r'^([A-Z][a-z]{2}\s+\d+\s\d{2}:\d{2}:\d{2})\s+(\S+)'
     log_line = re.sub(header_regex, '<TIMESTAMP> <HOSTNAME>', log_line)
+    
     return log_line.strip()
 
-def extract_named_parameters(raw_line, template):
+
+def extract_named_parameters(clean_raw_line, template):
     """
-    Extracts values from the RAW line using the pattern found in the TEMPLATE.
-    Now specifically handles timestamps containing spaces.
+    Extracts values using the Cleaned Raw Line (no trailing timestamp).
     """
     params = {}
-    
-    # 1. Prepare the Template Regex
     regex_pattern = re.escape(template)
     
-    # 2. Define specific regex patterns for special tags
-    # This ensures TIMESTAMP grabs "Jun 09 10:00:00" instead of just "Jun"
+    # Define regex for special tags
     special_tags = {
+        # Matches "Jun 09 10:00:00" (Standard Header Timestamp)
         "<TIMESTAMP>": r"([A-Z][a-z]{2}\s+\d+\s\d{2}:\d{2}:\d{2})",
-        "<HOSTNAME>": r"(\S+)"  # Hostname is usually one word (no spaces)
+        "<HOSTNAME>": r"(\S+)"
     }
 
-    # 3. Replace special tags first
+    # Replace special tags
     for tag, pattern in special_tags.items():
         if tag in template:
-            # We un-escape the tag because re.escape() turned '<' into '\<'
             escaped_tag = re.escape(tag) 
             regex_pattern = regex_pattern.replace(escaped_tag, pattern)
 
-    # 4. Replace remaining generic tags (like <PID>, <RHOST>) with (.*?)
+    # Replace generic tags
     remaining_tags = re.findall(r"<[A-Z]+>", template)
     for tag in set(remaining_tags):
         if tag not in special_tags:
@@ -88,12 +97,9 @@ def extract_named_parameters(raw_line, template):
     regex_pattern = f"^{regex_pattern}$"
     
     try:
-        match = re.match(regex_pattern, raw_line)
+        match = re.match(regex_pattern, clean_raw_line)
         if match:
             extracted_values = list(match.groups())
-            
-            # We need to map values back to tags. 
-            # We must follow the order they appear in the template.
             ordered_tags = re.findall(r"<[A-Z]+>", template)
             
             current_val_index = 0
@@ -102,11 +108,11 @@ def extract_named_parameters(raw_line, template):
                     key = tag.strip("<>")
                     params[key] = extracted_values[current_val_index].strip()
                     current_val_index += 1
-
     except Exception:
         pass 
 
     return json.dumps(params)
+
 # ==========================================
 # 3. EXECUTION
 # ==========================================
@@ -134,20 +140,22 @@ try:
             raw_line = line.strip()
             if not raw_line: continue
             
-            # 1. Preprocess & Train
-            # We use the MODIFIED line to teach Drain the pattern.
+            # 1. Preprocess & Mine
+            # (Removes trailing timestamp internally so Drain doesn't see it)
             content = preprocess_log(raw_line)
             result = template_miner.add_log_message(content)
             
             template = result['template_mined']
             cluster_id = result['cluster_id']
             
-            # 2. Extract Parameters
-            # FIX: We now use 'raw_line' here, so we capture "Jun 9..." instead of "<TIMESTAMP>"
-            params_json = extract_named_parameters(raw_line, template)
+            # 2. Extract Variables
+            # CRITICAL: We must also remove the trailing timestamp from the raw line
+            # used for extraction, otherwise the regex won't match the shortened template.
+            clean_raw_line = remove_trailing_timestamp(raw_line)
+            params_json = extract_named_parameters(clean_raw_line, template)
             
             rows.append({
-                "Raw Log": raw_line,
+                "Raw Log": raw_line,          # We keep the ORIGINAL full log here
                 "Drained Named Log": template,
                 "Template ID": cluster_id,
                 "Parameters": params_json
