@@ -50,10 +50,11 @@ config.masking_instructions = [
     
     MaskingInstruction(r"\buid=\d+", "uid=<UID>"),
     MaskingInstruction(r"user=\S+", "user=<USERNAME>"),
-    MaskingInstruction(r"user\s+\S+", "user <USERNAME>"),
+   # FIX: Don't match "user does" (as in "user does not have access")
+    MaskingInstruction(r"user\s+(?!does\b)\S+", "user <USERNAME>"),
     
-    # FIX: added '|ftpd' to the negative lookahead list so (ftpd) is NOT masked as <RHOST>
-    MaskingInstruction(r"(?<=\s)\((?!uid=|Address|errno|ftpd)[^)]*\)", "(<RHOST>)"),
+    # FIX: Added 'chars' to exclusion list so "(36 chars)" is not masked as RHOST
+    MaskingInstruction(r"(?<=\s)\((?!uid=|Address|errno|ftpd|.*?chars)[^)]*\)", "(<RHOST>)"),
 
     # FIX: Handle explicit rhost=... (matches "rhost=1.2.3.4" -> "rhost=<RHOST>")
     MaskingInstruction(r"rhost=\S+", "rhost=<RHOST>"),
@@ -119,11 +120,11 @@ def extract_named_parameters(clean_raw_line, template):
     params = {}
     regex_pattern = re.escape(template)
 
-    # --- FIX START: Allow flexible whitespace ---
-    # Replace literal spaces (escaped or not) with \s+ to match 1 or more spaces
-    regex_pattern = regex_pattern.replace(r"\ ", r"\s+")
-    regex_pattern = regex_pattern.replace(" ", r"\s+")
-    # --- FIX END ---
+    # --- FIX: Allow flexible whitespace (Non-Greedy) ---
+    # Use \s+? so it matches the minimum delimiter spaces (1) 
+    # and leaves the rest for the <USERNAME> capture group.
+    regex_pattern = regex_pattern.replace(r"\ ", r"\s+?")
+    regex_pattern = regex_pattern.replace(" ", r"\s+?")
     
     # --- FIX START: Handle Drain Wildcards (*) ---
     # If Drain generates a '*', re.escape turns it into '\*'.
@@ -177,10 +178,14 @@ def extract_named_parameters(clean_raw_line, template):
         if len(extracted_values) == len(ordered_tags):
              for tag, value in zip(ordered_tags, extracted_values):
                 key = tag.strip("<>")
-                value = value.strip()
+                # Handle cases where value might be None (though rare with this regex)
+                if value is None: 
+                    value = ""
+                #value = value.strip()
 
-                if not value:
-                    continue
+            # DELETE or COMMENT OUT these lines to allow empty parameters:
+            # if not value:
+            #     continue
 
                 if key in params:
                     if value not in params[key]:
