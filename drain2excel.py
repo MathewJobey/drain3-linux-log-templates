@@ -60,56 +60,85 @@ def preprocess_log(log_line):
     # 1. Remove the redundant trailing timestamp first
     log_line = remove_trailing_timestamp(log_line)
     
+    log_line = normalize_ftpd_rhost(log_line)
+    
     # 2. Standardize the Header
     header_regex = r'^([A-Z][a-z]{2}\s+\d+\s\d{2}:\d{2}:\d{2})\s+(\S+)'
     log_line = re.sub(header_regex, '<TIMESTAMP> <HOSTNAME>', log_line)
     
     return log_line.strip()
 
+def normalize_ftpd_rhost(line):
+    pattern = re.compile(
+        r"(connection from)\s+(\d{1,3}(?:\.\d{1,3}){3})\s*\(([^)]*)\)"
+    )
+
+    def replacer(match):
+        prefix = match.group(1)
+        outer_ip = match.group(2)
+        inner = match.group(3).strip()
+
+        # Always preserve structure
+        if inner:
+            return f"{prefix} {outer_ip} ({inner})"
+        else:
+            return f"{prefix} {outer_ip}"
+
+    return pattern.sub(replacer, line)
+
 
 def extract_named_parameters(clean_raw_line, template):
     """
     Extracts values using the Cleaned Raw Line (no trailing timestamp).
+    If the same key appears multiple times with different values,
+    they are merged using comma separation.
     """
     params = {}
     regex_pattern = re.escape(template)
-    
-    # Define regex for special tags
+
+    # Special tags
     special_tags = {
-        # Matches "Jun 09 10:00:00" (Standard Header Timestamp)
         "<TIMESTAMP>": r"([A-Z][a-z]{2}\s+\d+\s\d{2}:\d{2}:\d{2})",
         "<HOSTNAME>": r"(\S+)"
     }
 
-    # Replace special tags
+    # Replace special tags first
     for tag, pattern in special_tags.items():
         if tag in template:
-            escaped_tag = re.escape(tag) 
-            regex_pattern = regex_pattern.replace(escaped_tag, pattern)
+            regex_pattern = regex_pattern.replace(re.escape(tag), pattern)
 
-    # Replace generic tags
+    # Replace remaining tags generically
     remaining_tags = re.findall(r"<[A-Z]+>", template)
     for tag in set(remaining_tags):
         if tag not in special_tags:
-            escaped_tag = re.escape(tag)
-            regex_pattern = regex_pattern.replace(escaped_tag, r"(.*?)")
-    
+            regex_pattern = regex_pattern.replace(re.escape(tag), r"(.*?)")
+
     regex_pattern = f"^{regex_pattern}$"
-    
+
     try:
         match = re.match(regex_pattern, clean_raw_line)
-        if match:
-            extracted_values = list(match.groups())
-            ordered_tags = re.findall(r"<[A-Z]+>", template)
-            
-            current_val_index = 0
-            for tag in ordered_tags:
-                if current_val_index < len(extracted_values):
-                    key = tag.strip("<>")
-                    params[key] = extracted_values[current_val_index].strip()
-                    current_val_index += 1
+        if not match:
+            return json.dumps({})
+
+        extracted_values = list(match.groups())
+        ordered_tags = re.findall(r"<[A-Z]+>", template)
+
+        for tag, value in zip(ordered_tags, extracted_values):
+            key = tag.strip("<>")
+            value = value.strip()
+
+            if not value:
+                continue
+
+            if key in params:
+                # merge only if different
+                if value not in params[key]:
+                    params[key] = f"{params[key]}, {value}"
+            else:
+                params[key] = value
+
     except Exception:
-        pass 
+        pass
 
     return json.dumps(params)
 
