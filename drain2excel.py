@@ -253,15 +253,37 @@ try:
             })
 
     if rows:
-        print(f"Generating Excel file with {len(rows)} rows...")
-        df = pd.DataFrame(rows)
-        df = df.sort_values(by="Template ID")
-        df = df[["Raw Log", "Drained Named Log", "Template ID", "Parameters"]]
-        df.to_excel(output_excel, index=False)
+        print(f"Analysis complete! Preparing Excel file...")
+        
+        # --- SHEET 1: Detailed Logs ---
+        df_logs = pd.DataFrame(rows)
+        df_logs = df_logs.sort_values(by="Template ID")
+        df_logs = df_logs[["Raw Log", "Drained Named Log", "Template ID", "Parameters"]]
+        
+        # --- SHEET 2: Template Summary ---
+        # Extract cluster stats directly from the miner
+        clusters = []
+        for cluster in template_miner.drain.clusters:
+            clusters.append({
+                "Template ID": cluster.cluster_id,
+                "Template Pattern": cluster.get_template(),
+                "Occurrences": cluster.size
+            })
+        
+        df_summary = pd.DataFrame(clusters)
+        # Sort by Occurrences (Highest count at top)
+        df_summary = df_summary.sort_values(by="Occurrences", ascending=False)
+        
+        # --- WRITE BOTH SHEETS TO EXCEL ---
+        with pd.ExcelWriter(output_excel) as writer:
+            df_logs.to_excel(writer, sheet_name='Log Analysis', index=False)
+            df_summary.to_excel(writer, sheet_name='Template Summary', index=False)
         
         print("="*40)
         print("SUCCESS!")
         print(f"File saved: {output_excel}")
+        print(f"Total Lines: {len(df_logs)}")
+        print(f"Unique Clusters: {len(df_summary)}")
         print("="*40)
     else:
         print("Warning: No logs found in the file.")
